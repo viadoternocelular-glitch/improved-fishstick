@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Painel Kanban Cloud - Acompanhamento de Pedidos</title>
+  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --surface: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #eff6ff;
+      --backlog: #64748b;
+      --atencao: #f59e0b;
+      --critico: #dc2626;
+      --success: #10b981;
+      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .auth-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .auth-modal.hidden {
+      display: none;
+    }
+
+    .auth-container {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 2rem;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: var(--shadow);
+    }
+
+    .auth-container h2 {
+      margin-top: 0;
+      text-align: center;
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .form-group label {
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .form-group input,
+    .form-group select {
+      padding: 0.8rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 1rem;
+      font-family: inherit;
+    }
+
+    .auth-buttons {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .auth-buttons button {
+      flex: 1;
+      padding: 0.8rem;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-login {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-login:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-signup {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-signup:hover {
+      background: var(--bg);
+    }
+
+    .auth-error {
+      background: #fef2f2;
+      color: var(--critico);
+      padding: 0.8rem;
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      font-size: 0.85rem;
+      display: none;
+    }
+
+    header {
+      background: var(--surface);
+      padding: 1rem 2rem;
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 1rem;
+      background: var(--primary-light);
+      border-radius: var(--radius);
+      font-size: 0.85rem;
+    }
+
+    .user-role {
+      font-weight: 600;
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      background: var(--primary);
+      color: white;
+      text-transform: uppercase;
+    }
+
+    .btn-logout {
+      background: var(--critico);
+      color: white;
+      border: none;
+      padding: 0.6rem 1.2rem;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .sync-status {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8rem;
+      padding: 0.4rem 0.8rem;
+      border-radius: 999px;
+      background: #f0fdf4;
+      color: var(--success);
+    }
+
+    main {
+      padding: 1.5rem 2rem;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .summary-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 1rem;
+      box-shadow: var(--shadow);
+      text-align: center;
+    }
+
+    .summary-card .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .summary-card .label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 1rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 1.5rem;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      flex: 1;
+      min-width: 180px;
+    }
+
+    .filter-group label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    select, input[type="date"] {
+      appearance: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.6rem;
+      font-size: 0.9rem;
+      font-family: inherit;
+      color: var(--text);
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+
+    .column {
+      background: var(--bg);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      max-height: 70vh;
+    }
+
+    .column-header {
+      padding: 1rem;
+      border-radius: var(--radius) var(--radius) 0 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .column-header.backlog { background: var(--backlog); }
+    .column-header.atencao { background: var(--atencao); }
+    .column-header.critico { background: var(--critico); }
+
+    .column-body {
+      padding: 0.75rem;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .order-card {
+      background: var(--surface);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 1rem;
+      border-left: 5px solid transparent;
+      cursor: grab;
+    }
+
+    .order-card.backlog { border-left-color: var(--backlog); }
+    .order-card.atencao { border-left-color: var(--atencao); }
+    .order-card.critico { border-left-color: var(--critico); }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+
+    .order-number {
+      font-weight: 700;
+    }
+
+    .field {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      padding: 0.2rem 0;
+    }
+
+    .field .label { color: var(--muted); }
+    .field .value { font-weight: 600; }
+
+    .fab-btn {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      border: none;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      z-index: 50;
+    }
+
+    .fab-btn:hover {
+      background: var(--primary-hover);
+    }
+
+    .import-panel {
+      position: fixed;
+      bottom: 80px;
+      right: 1.5rem;
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+      width: 300px;
+      padding: 1rem;
+      display: none;
+      z-index: 49;
+    }
+
+    .import-panel.active {
+      display: block;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+      padding: 1rem;
+      text-align: center;
+      cursor: pointer;
+      margin-bottom: 0.75rem;
+      font-size: 0.85rem;
+    }
+
+    .drop-zone:hover {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    .import-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .import-actions button {
+      padding: 0.6rem;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+    }
+
+    input[type="file"] { display: none; }
+
+    .permission-denied {
+      background: #fef2f2;
+      color: var(--critico);
+      padding: 0.8rem;
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      display: none;
+    }
+
+    .status {
+      padding: 0.8rem;
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      display: none;
+    }
+
+    .status.success {
+      background: #f0fdf4;
+      color: var(--success);
+      display: block;
+    }
+
+    .status.error {
+      background: #fef2f2;
+      color: var(--critico);
+      display: block;
+    }
+
+    @media (max-width: 900px) {
+      .board { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Auth Modal -->
+  <div class="auth-modal" id="auth-modal">
+    <div class="auth-container">
+      <h2 id="auth-title">☁️ Entrar</h2>
+      <div id="auth-error" class="auth-error"></div>
+      
+      <div class="form-group">
+        <label for="auth-email">Email</label>
+        <input type="email" id="auth-email" placeholder="seu@email.com" />
+      </div>
+      
+      <div class="form-group">
+        <label for="auth-password">Senha</label>
+        <input type="password" id="auth-password" placeholder="••••••••" />
+      </div>
+
+      <div class="form-group" id="auth-role-group" style="display: none;">
+        <label for="auth-role">Meu Tipo de Acesso (novo usuário)</label>
+        <select id="auth-role">
+          <option value="editor">Editor (editar pedidos)</option>
+          <option value="visualizador">Visualizador (apenas ler)</option>
+        </select>
+      </div>
+
+      <div class="auth-buttons">
+        <button class="btn-login" id="btn-auth-submit">Entrar</button>
+        <button class="btn-signup" id="btn-auth-toggle">Criar Conta</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Interface -->
+  <header id="header" style="display: none;">
+    <div>
+      <h1>☁️ Painel Kanban Cloud</h1>
+    </div>
+    <div class="header-actions">
+      <div class="sync-status" id="sync-status">✓ Sincronizado</div>
+      <div class="user-info">
+        <span id="user-email"></span>
+        <span class="user-role" id="user-role"></span>
+      </div>
+      <button class="btn-logout" id="btn-logout">Sair</button>
+    </div>
+  </header>
+
+  <main id="main-content" style="display: none;">
+    <div id="permission-alert" class="permission-denied"></div>
+    <div id="status" class="status"></div>
+
+    <div class="summary">
+      <div class="summary-card">
+        <span class="value" id="total-orders">0</span>
+        <span class="label">Total</span>
+      </div>
+      <div class="summary-card">
+        <span class="value" id="total-backlog">0</span>
+        <span class="label">Em Processo</span>
+      </div>
+      <div class="summary-card">
+        <span class="value" id="total-atencao">0</span>
+        <span class="label">Atenção</span>
+      </div>
+      <div class="summary-card">
+        <span class="value" id="total-critico">0</span>
+        <span class="label">Crítico</span>
+      </div>
+      <div class="summary-card">
+        <span class="value" id="total-value">R$ 0,00</span>
+        <span class="label">Valor Total</span>
+      </div>
+    </div>
+
+    <div class="filters">
+      <div class="filter-group">
+        <label>Representante</label>
+        <select id="filter-rep"><option value="">Todos</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Tipo</label>
+        <select id="filter-tipo"><option value="">Todos</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Status</label>
+        <select id="filter-status">
+          <option value="">Todos</option>
+          <option value="backlog">Em Processo</option>
+          <option value="atencao">Atenção</option>
+          <option value="critico">Crítico</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>De</label>
+        <input type="date" id="filter-inicio" />
+      </div>
+      <div class="filter-group">
+        <label>Até</label>
+        <input type="date" id="filter-fim" />
+      </div>
+    </div>
+
+    <div class="board">
+      <div class="column">
+        <div class="column-header backlog">
+          <span>EM PROCESSO</span>
+          <span id="count-backlog">0</span>
+        </div>
+        <div class="column-body" id="col-backlog"></div>
+      </div>
+      <div class="column">
+        <div class="column-header atencao">
+          <span>ATENÇÃO</span>
+          <span id="count-atencao">0</span>
+        </div>
+        <div class="column-body" id="col-atencao"></div>
+      </div>
+      <div class="column">
+        <div class="column-header critico">
+          <span>CRÍTICO (> 20 DIAS)</span>
+          <span id="count-critico">0</span>
+        </div>
+        <div class="column-body" id="col-critico"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Import Panel -->
+  <div class="import-panel" id="import-panel">
+    <div class="drop-zone" id="drop-zone">
+      Arraste arquivo CSV/XLSX ou clique
+    </div>
+    <div class="import-actions">
+      <button class="btn-primary" id="btn-import">📁 Importar</button>
+      <button class="btn-danger" id="btn-clear">🗑️ Limpar Todos</button>
+    </div>
+    <input type="file" id="file-input" accept=".csv, .xlsx" />
+  </div>
+
+  <button class="fab-btn" id="fab-btn" style="display: none;">+</button>
+
+  <script>
+    // ============ FIREBASE CONFIG ============
+    const firebaseConfig = {
+      apiKey: "AIzaSy...", // SUBSTITUIR
+      authDomain: "seu-projeto.firebaseapp.com", // SUBSTITUIR
+      projectId: "seu-projeto", // SUBSTITUIR
+      storageBucket: "seu-projeto.appspot.com", // SUBSTITUIR
+      messagingSenderId: "123456789", // SUBSTITUIR
+      appId: "1:123456789:web:abc" // SUBSTITUIR
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    // ============ STATE ============
+    let currentUser = null;
+    let userRole = null;
+    let orders = [];
+    let filters = {};
+    let isLoginMode = true;
+
+    // ============ ELEMENTS ============
+    const authModal = document.getElementById('auth-modal');
+    const authTitle = document.getElementById('auth-title');
+    const authError = document.getElementById('auth-error');
+    const authEmail = document.getElementById('auth-email');
+    const authPassword = document.getElementById('auth-password');
+    const authRole = document.getElementById('auth-role');
+    const authRoleGroup = document.getElementById('auth-role-group');
+    const btnAuthSubmit = document.getElementById('btn-auth-submit');
+    const btnAuthToggle = document.getElementById('btn-auth-toggle');
+
+    const header = document.getElementById('header');
+    const mainContent = document.getElementById('main-content');
+    const btnLogout = document.getElementById('btn-logout');
+    const userEmail = document.getElementById('user-email');
+    const userRoleSpan = document.getElementById('user-role');
+    const permissionAlert = document.getElementById('permission-alert');
+    const statusDiv = document.getElementById('status');
+
+    const fabBtn = document.getElementById('fab-btn');
+    const importPanel = document.getElementById('import-panel');
+    const dropZone = document.getElementById('drop-zone');
+    const btnImport = document.getElementById('btn-import');
+    const btnClear = document.getElementById('btn-clear');
+    const fileInput = document.getElementById('file-input');
+
+    const colBacklog = document.getElementById('col-backlog');
+    const colAtencao = document.getElementById('col-atencao');
+    const colCritico = document.getElementById('col-critico');
+
+    // ============ AUTH ============
+    btnAuthToggle.addEventListener('click', () => {
+      isLoginMode = !isLoginMode;
+      authTitle.textContent = isLoginMode ? '☁️ Entrar' : '☁️ Criar Conta';
+      btnAuthSubmit.textContent = isLoginMode ? 'Entrar' : 'Criar';
+      authRoleGroup.style.display = isLoginMode ? 'none' : 'flex';
+    });
+
+    btnAuthSubmit.addEventListener('click', handleAuth);
+    authPassword.addEventListener('keypress', (e) => e.key === 'Enter' && handleAuth());
+
+    function handleAuth() {
+      const email = authEmail.value.trim();
+      const pwd = authPassword.value.trim();
+
+      if (!email || !pwd) {
+        showAuthError('Preencha email e senha');
+        return;
+      }
+
+      if (isLoginMode) {
+        auth.signInWithEmailAndPassword(email, pwd)
+          .catch(err => showAuthError(err.message));
+      } else {
+        const role = authRole.value;
+        auth.createUserWithEmailAndPassword(email, pwd)
+          .then(async () => {
+            const user = auth.currentUser;
+            await db.collection('usuarios').doc(user.uid).set({
+              email: user.email,
+              role: role,
+              criado_em: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          })
+          .catch(err => showAuthError(err.message));
+      }
+    }
+
+    function showAuthError(msg) {
+      authError.textContent = msg;
+      authError.style.display = 'block';
+    }
+
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        currentUser = user;
+        userEmail.textContent = user.email;
+
+        const userDoc = await db.collection('usuarios').doc(user.uid).get();
+        userRole = userDoc.exists ? (userDoc.data().role || 'visualizador') : 'visualizador';
+        userRoleSpan.textContent = userRole.toUpperCase();
+
+        authModal.classList.add('hidden');
+        header.style.display = 'flex';
+        mainContent.style.display = 'block';
+
+        if (userRole === 'visualizador') {
+          permissionAlert.style.display = 'block';
+          permissionAlert.textContent = '👁️ Modo visualizador - apenas leitura';
+          fabBtn.style.display = 'none';
+        } else {
+          fabBtn.style.display = 'flex';
+        }
+
+        loadOrders();
+      } else {
+        currentUser = null;
+        authModal.classList.remove('hidden');
+        header.style.display = 'none';
+        mainContent.style.display = 'none';
+        fabBtn.style.display = 'none';
+      }
+    });
+
+    btnLogout.addEventListener('click', () => auth.signOut());
+
+    // ============ LOAD DATA ============
+    function loadOrders() {
+      db.collection('pedidos')
+        .orderBy('modificado_em', 'desc')
+        .onSnapshot((snapshot) => {
+          orders = [];
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            orders.push({
+              id: doc.id,
+              ...data,
+              emissao: data.emissao ? data.emissao.toDate() : null
+            });
+          });
+
+          updateFilters();
+          render();
+        });
+    }
+
+    function updateFilters() {
+      const reps = [...new Set(orders.map(o => o.rep))].sort();
+      const tipos = [...new Set(orders.map(o => o.descTipo))].sort();
+
+      document.getElementById('filter-rep').innerHTML = '<option value="">Todos</option>' + 
+        reps.map(r => `<option value="${r}">${r}</option>`).join('');
+      document.getElementById('filter-tipo').innerHTML = '<option value="">Todos</option>' + 
+        tipos.map(t => `<option value="${t}">${t}</option>`).join('');
+    }
+
+    // ============ RENDER ============
+    function render() {
+      const dias_reps = document.getElementById('filter-rep').value;
+      const dias_tipos = document.getElementById('filter-tipo').value;
+      const dias_status = document.getElementById('filter-status').value;
+
+      let filtered = orders.filter(o => {
+        if (dias_reps && o.rep !== dias_reps) return false;
+        if (dias_tipos && o.descTipo !== dias_tipos) return false;
+        if (dias_status && o.coluna !== dias_status) return false;
+        return true;
+      });
+
+      colBacklog.innerHTML = '';
+      colAtencao.innerHTML = '';
+      colCritico.innerHTML = '';
+
+      let counts = { backlog: 0, atencao: 0, critico: 0 };
+      let total = 0;
+
+      filtered.forEach(o => {
+        total += o.valor || 0;
+        counts[o.coluna]++;
+
+        const card = createCard(o);
+        if (o.coluna === 'backlog') colBacklog.appendChild(card);
+        else if (o.coluna === 'atencao') colAtencao.appendChild(card);
+        else colCritico.appendChild(card);
+      });
+
+      document.getElementById('total-orders').textContent = filtered.length;
+      document.getElementById('total-backlog').textContent = counts.backlog;
+      document.getElementById('total-atencao').textContent = counts.atencao;
+      document.getElementById('total-critico').textContent = counts.critico;
+      document.getElementById('total-value').textContent = total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+      document.getElementById('count-backlog').textContent = counts.backlog;
+      document.getElementById('count-atencao').textContent = counts.atencao;
+      document.getElementById('count-critico').textContent = counts.critico;
+    }
+
+    function createCard(o) {
+      const dias = Math.floor((new Date() - new Date(o.emissao)) / 86400000);
+      const card = document.createElement('div');
+      card.className = `order-card ${o.coluna}`;
+      card.innerHTML = `
+        <div class="card-header">
+          <span class="order-number">#${o.pedido}</span>
+        </div>
+        <div class="field">
+          <span class="label">Cliente:</span>
+          <span class="value">${o.nome}</span>
+        </div>
+        <div class="field">
+          <span class="label">Rep:</span>
+          <span class="value">${o.rep}</span>
+        </div>
+        <div class="field">
+          <span class="label">Dias:</span>
+          <span class="value">${dias}</span>
+        </div>
+        <div class="field">
+          <span class="label">Valor:</span>
+          <span class="value">${(o.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+        </div>
+      `;
+      return card;
+    }
+
+    // ============ FILTERS ============
+    document.getElementById('filter-rep').addEventListener('change', render);
+    document.getElementById('filter-tipo').addEventListener('change', render);
+    document.getElementById('filter-status').addEventListener('change', render);
+
+    // ============ IMPORT ============
+    fabBtn.addEventListener('click', () => {
+      importPanel.classList.toggle('active');
+    });
+
+    btnImport.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'var(--primary)';
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.style.borderColor = 'var(--border)';
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'var(--border)';
+      handleFiles(e.dataTransfer.files);
+    });
+
+    btnClear.addEventListener('click', clearDB);
+
+    async function handleFiles(files) {
+      if (!files.length || userRole === 'visualizador') return;
+
+      const file = files[0];
+      const ext = file.name.split('.').pop().toLowerCase();
+      const reader = new FileReader();
+
+      reader.onload = async (e) => {
+        try {
+          let rows = [];
+
+          if (ext === 'csv') {
+            const text = e.target.result;
+            const lines = text.split('\n').filter(l => l.trim());
+            const headers = lines[0].split(',');
+            rows = lines.slice(1).map(line => {
+              const values = line.split(',');
+              const obj = {};
+              headers.forEach((h, i) => obj[h.trim()] = values[i]?.trim());
+              return obj;
+            });
+          } else {
+            const data = new Uint8Array(e.target.result);
+            const wb = XLSX.read(data, { type: 'array' });
+            rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+          }
+
+          const normalized = rows.map(row => {
+            const emissao = new Date(row.emissao || row.data || row.Data);
+            const dias = (new Date() - emissao) / 86400000;
+            return {
+              pedido: row.pedido || row.Pedido || row.numero || 'N/A',
+              nome: row.nome || row.cliente || row.Cliente || '-',
+              rep: row.rep || row.vendedor || row.Vendedor || '-',
+              descTipo: row.tipo || row.Tipo || row.descTipo || '-',
+              valor: parseFloat(String(row.valor || row.total || 0).replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0,
+              emissao: emissao,
+              coluna: dias > 20 ? 'critico' : (dias >= 10 ? 'atencao' : 'backlog')
+            };
+          });
+
+          const batch = db.batch();
+          for (const o of normalized) {
+            const ref = db.collection('pedidos').doc(o.pedido.toString());
+            batch.set(ref, {
+              ...o,
+              emissao: firebase.firestore.Timestamp.fromDate(o.emissao),
+              modificado_em: firebase.firestore.FieldValue.serverTimestamp(),
+              modificado_por: currentUser.email
+            }, { merge: true });
+          }
+
+          await batch.commit();
+          showStatus('success', `${normalized.length} pedidos importados`);
+          importPanel.classList.remove('active');
+        } catch (err) {
+          showStatus('error', 'Erro: ' + err.message);
+        }
+      };
+
+      if (ext === 'csv') reader.readAsText(file);
+      else reader.readAsArrayBuffer(file);
+    }
+
+    async function clearDB() {
+      if (userRole !== 'admin') {
+        showStatus('error', 'Apenas admin pode limpar');
+        return;
+      }
+
+      if (!confirm('DELETAR TODOS os pedidos?')) return;
+
+      try {
+        const snapshot = await db.collection('pedidos').get();
+        const batch = db.batch();
+        snapshot.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+        showStatus('success', 'Banco limpo');
+      } catch (err) {
+        showStatus('error', 'Erro: ' + err.message);
+      }
+    }
+
+    function showStatus(type, msg) {
+      statusDiv.className = `status ${type}`;
+      statusDiv.textContent = msg;
+      setTimeout(() => { statusDiv.className = 'status'; }, 3000);
+    }
+  </script>
+</body>
+</html>
